@@ -1,0 +1,21 @@
+﻿html, body {
+  position: relative;
+  min-height: 100%;
+  margin:0;
+  padding:0;
+  overflow:hidden;
+}
+
+canvas {
+    background: url('../img/background.jpg');
+    overflow:hidden;
+}
+
+.flipped {
+    transform: scale(-1, 1);
+    -moz-transform: scale(-1, 1);
+    -webkit-transform: scale(-1, 1);
+    -o-transform: scale(-1, 1);
+    -khtml-transform: scale(-1, 1);
+    -ms-transform: scale(-1, 1);
+}

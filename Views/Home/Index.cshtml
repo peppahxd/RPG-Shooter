@@ -1,0 +1,305 @@
+﻿@{
+    ViewData["Title"] = "Home Page";
+}
+
+
+
+<canvas id="canvas" style="width:100vw; height:100vh;">
+
+
+</canvas>
+
+
+<script>
+
+    $(document).ready(function () {
+
+        class Platform {
+            constructor(canvas, ix, iy, iw, ih, color) {
+                this.canvas = canvas;
+                this.iX = ix;
+                this.iY = iy;
+                this.iWidth = iw;
+                this.iHeight = ih;
+                this.color = color;
+            }
+
+            Draw() {
+                this.canvas.DrawRect(this.iX, this.iY, this.iWidth, this.iHeight, this.color); //left
+            }
+
+            Fix() {
+                this.iX = parseInt(this.iX);
+                this.iY = parseInt(this.iY);
+                this.iWidth = parseInt(this.iWidth);
+                this.iHeight = parseInt(this.iHeight);
+            }
+        }
+
+        class GeneratedObject {
+            constructor(ix,iy,iw,ih) {
+                this.iX = ix;
+                this.iY = iy;
+                this.iWidth = iw;
+                this.iHeight = ih;
+            }
+        }
+
+        class Canvas {
+            constructor() {
+                this.iX = 0;
+                this.iY = 0;
+                this.cnvs = document.getElementById('canvas');
+                this.cnvs.width = window.innerWidth;
+                this.cnvs.height = window.innerHeight;
+                this.ctx = this.cnvs.getContext("2d");
+                this.iWidth = $('canvas').width();
+                this.iHeight = $('canvas').height();
+                this.horiSpacer = this.iWidth / 50;
+                this.vertiSpacer = this.iHeight / 50;
+            }
+
+            DrawRect(ix, iy, iw, ih, col) {
+                this.ctx.fillStyle = col;
+                this.ctx.fillRect(ix, iy, iw, ih);
+            }
+        }
+
+        var url = "wss://localhost:5001/ws";
+        var webSocket = new WebSocket(url);
+        var playersJson = null;
+        var generatedObj = null;
+        var canvas = new Canvas();
+        var id = 0;
+        var platforms = [];
+        var players = [];
+        var bullets = [];
+        var anims = [];
+        var animsSrc = ["right.png", "left.png", "leftbend.png", "rightbend.png", "leftdead.png", "rightdead.png"];
+        
+
+        var bulletLeftImg = new Image();
+        var bulletRightImg = new Image();
+
+        function isJson(str) {
+            try {
+                JSON.parse(str);
+            } catch (e) {
+                return false;
+            }
+            return true;
+        }
+
+        function init() {
+            var platform1 = new Platform(canvas, canvas.iX + canvas.horiSpacer, canvas.iY + canvas.vertiSpacer * 7, canvas.horiSpacer * 5, canvas.vertiSpacer, "red");
+            platform1.Fix();
+            platforms.push(platform1);
+
+
+            var platform2 = new Platform(canvas, canvas.iWidth - ((canvas.horiSpacer * 5) + (canvas.horiSpacer * 2)), canvas.iY + canvas.vertiSpacer * 7, canvas.horiSpacer * 5, canvas.vertiSpacer, "blue");
+            platform2.Fix();
+            platforms.push(platform2);
+
+            var platform3 = new Platform(canvas, canvas.iX + canvas.horiSpacer * 3, canvas.iY + canvas.vertiSpacer * 20, canvas.iWidth - (canvas.horiSpacer * 6), canvas.vertiSpacer, "green");
+            platform3.Fix();
+            platforms.push(platform3);
+
+            var platform4 = new Platform(canvas, canvas.iX, canvas.iHeight - canvas.vertiSpacer, canvas.iWidth, canvas.vertiSpacer, "lightgreen");
+            platform4.Fix();
+            platforms.push(platform4);
+
+
+            for (let i = 0; i < animsSrc.length * 2; i++) {
+
+                let img = new Image();
+                if (i < animsSrc.length)
+                    img.src = "/img/player0-" + animsSrc[i];
+
+                else {
+                    img.src = "/img/player1-" + animsSrc[i - animsSrc.length];
+                }
+
+                anims.push(img);
+            }
+
+            bulletLeftImg.src = "/img/bullet-left.png";
+            bulletRightImg.src = "/img/bullet-right.png";
+        }
+
+        function drawPlatforms() {
+            canvas.ctx.clearRect(0, 0, canvas.iWidth, canvas.iHeight);
+            for (let i = 0; i < platforms.length; i++) {
+                platforms[i].Draw();
+            }
+        }
+
+        function drawPlayers(canvas, webSocket) {
+            if (players == null)
+                return;
+
+            for (let i = 0; i < players.length; i++) {
+                var player = players[i];
+                if (player == null)
+                    continue;
+
+                var origin = player.Origin;
+                var bounds = player.Bounds;
+
+                var fixPos = fixPlayersPos(player);
+                if (fixPos != "") {
+                    webSocket.send(fixPos);
+                }
+
+                var img = null;
+                for (let j = 0; j < anims.length; j++) {
+                    if (anims[j].src.indexOf(player.sAnimation) >= 0) {
+                        img = anims[j];
+                        break;
+                    }
+                }
+
+                if (img != null) {
+                    canvas.ctx.drawImage(img, origin.iX, origin.iY, bounds.iWidth, bounds.iHeight);
+                }
+
+                
+            }
+        }
+
+        function drawBullets(canvas) {
+            for (let i = 0; i < players.length; i++) {
+                var bullets = players[i].Bullets;
+
+                for (let j = 0; j < bullets.length; j++) {
+                    var bullet = bullets[j];
+
+                    if (bullet.sDirection == "LEFT")
+                        canvas.ctx.drawImage(bulletLeftImg, bullet.Origin.iX, bullet.Origin.iY, bullet.Bounds.iWidth, bullet.Bounds.iHeight);
+                    else
+                        canvas.ctx.drawImage(bulletRightImg, bullet.Origin.iX, bullet.Origin.iY, bullet.Bounds.iWidth, bullet.Bounds.iHeight);
+                }
+            }
+        }
+
+        function drawGeneratedObject(canvas) {
+
+            if (generatedObj != null) {
+                canvas.ctx.fillStyle = "black";
+                canvas.ctx.fillRect(generatedObj.iX, generatedObj.iY, generatedObj.iWidth, generatedObj.iHeight);
+            }
+        }
+
+        function fixPlayersPos(player) {
+
+            if (player.Origin.iX == -1000) {
+                player.Origin.iX = parseInt(platforms[0].iX + 5);
+                player.Origin.iY = parseInt((platforms[0].iY - 5) - player.Bounds.iHeight);
+                return "FIXPOS&" + player.id + "&" + player.Origin.iX + "&" + player.Origin.iY + "&";
+            }
+
+            else if (player.Origin.iX == 1000) {
+                player.Origin.iX = parseInt(platforms[1].iX + platforms[1].iWidth - player.Bounds.iWidth);
+                player.Origin.iY = parseInt((platforms[1].iY - 5) - player.Bounds.iHeight);
+                return "FIXPOS&" + player.id + "&" + player.Origin.iX + "&" + player.Origin.iY + "&";
+            }
+
+            return "";
+        }
+
+        function handlePlayerMovement() {
+
+        }
+
+
+        init();
+
+        webSocket.onopen = function () {
+
+            
+            webSocket.send(JSON.stringify(platforms)); //update platforms to server
+
+            webSocket.send("ID&");
+            var interval = setInterval(function () {
+                
+                webSocket.send("REQ&");
+                
+                drawPlatforms();
+                drawPlayers(canvas, webSocket);
+                drawBullets(canvas);
+                drawGeneratedObject(canvas);
+            }, 5);
+
+
+            var keys = {};
+            $(document).keydown(function (event) {
+                keys[event.which] = true;
+
+                for (var i in keys) {
+                    if (!keys.hasOwnProperty(i)) continue;
+
+                    if (i == 81) webSocket.send("MOVE&LEFT&");
+                    if (i == 68) webSocket.send("MOVE&RIGHT&");
+                    if (i == 83) webSocket.send("MOVE&DOWN&");
+                }
+            })
+
+            $(document).keyup(function (event) {
+                delete keys[event.which];
+
+                if (event.which == 81) webSocket.send("MOVE&STOP&");
+                if (event.which == 68) webSocket.send("MOVE&STOP&");
+                if (event.which == 32) webSocket.send("MOVE&JUMP&");
+                if (event.which == 83) webSocket.send("MOVE&STOP&");
+                if (event.which == 13) webSocket.send("RPG&");
+                
+            })
+
+        }
+
+        webSocket.onclose = function (event) {
+            console.log("[ CLOSED ] - Socket closed");
+        };
+
+        webSocket.onerror = function (error) {
+            console.log("[ ERROR ] - Got websocket error:");
+            console.error(error);
+        };
+
+        webSocket.onmessage = function (data) {
+            var msg = data.data;
+            console.log(msg);
+            if (msg.indexOf("ID:") >= 0) {
+                id = parseInt(msg.replace("ID:", ""));
+            }
+                
+            if (msg.indexOf("DEAD") >= 0) {
+                setTimeout(function () {
+                    webSocket.send("RESPAWN&");
+                }, 2500);
+            }
+
+            if (msg.indexOf("NEWOBJECT&") >= 0) {
+                var xd = msg.split('&');
+                generatedObj = new GeneratedObject(xd[1], xd[2], xd[3], xd[4])
+            }
+
+            if (msg.indexOf("DELETEOBJECT") >= 0) {
+                alert("xd");
+                generatedObj = null;
+            }
+
+
+            if (isJson(msg)) {
+                //console.dir(JSON.parse(msg));
+                if (msg.indexOf('iHealth') >= 0)
+                    playersJson = JSON.parse(msg);
+
+            }
+
+            if (playersJson != null) 
+                players = playersJson;
+        }
+    })
+
+
+</script>
